@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Substack to EPUB Compiler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 Substack to EPUB Compiler</h1>
+            <p>Compile your favorite Substack articles into a single EPUB file for offline reading</p>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="messages">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <main>
+            <form method="POST" action="{{ url_for('compile_epub') }}" class="epub-form">
+                <div class="form-group">
+                    <label for="urls">Substack Article URLs</label>
+                    <textarea 
+                        id="urls" 
+                        name="urls" 
+                        rows="8" 
+                        placeholder="Paste your Substack URLs here, one per line:
+
+https://example.substack.com/p/article-1
+https://example.substack.com/p/article-2
+https://example.substack.com/p/article-3"
+                        required></textarea>
+                    <small>Enter one URL per line. You can paste multiple URLs at once.</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="title">Book Title</label>
+                        <input 
+                            type="text" 
+                            id="title" 
+                            name="title" 
+                            value="Substack Collection" 
+                            placeholder="My Reading Collection">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="author">Author</label>
+                        <input 
+                            type="text" 
+                            id="author" 
+                            name="author" 
+                            value="Various" 
+                            placeholder="Various Authors">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary">
+                    <span class="btn-text">📖 Compile EPUB</span>
+                    <span class="btn-loading" style="display: none;">⏳ Compiling...</span>
+                </button>
+            </form>
+
+            <div class="info-section">
+                <h2>How to use:</h2>
+                <ol>
+                    <li>Copy URLs from your favorite Substack articles</li>
+                    <li>Paste them in the text area above (one per line)</li>
+                    <li>Customize the book title and author if desired</li>
+                    <li>Click "Compile EPUB" to generate your book</li>
+                    <li>Download and enjoy reading offline!</li>
+                </ol>
+
+                <div class="tips">
+                    <h3>💡 Tips:</h3>
+                    <ul>
+                        <li>Works with any Substack publication</li>
+                        <li>Articles are compiled in the order you provide them</li>
+                        <li>The tool automatically extracts titles, authors, and content</li>
+                        <li>Generated EPUBs work with most e-readers and reading apps</li>
+                    </ul>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Made with ❤️ for better reading experiences</p>
+        </footer>
+    </div>
+
+    <script>
+        // Add loading state to form submission
+        document.querySelector('.epub-form').addEventListener('submit', function() {
+            const button = this.querySelector('button[type="submit"]');
+            const btnText = button.querySelector('.btn-text');
+            const btnLoading = button.querySelector('.btn-loading');
+            
+            button.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline';
+        });
+
+        // Auto-resize textarea
+        const textarea = document.getElementById('urls');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = this.scrollHeight + 'px';
+        });
+    </script>
+</body>
+</html>
