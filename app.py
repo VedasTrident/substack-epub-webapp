@@ -309,6 +309,9 @@ def compile_epub():
         flash(f'Error creating EPUB: {str(e)}', 'error')
         return redirect(url_for('index'))
 
+# For Vercel, we don't need the main guard
+# Vercel will import the app directly
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
