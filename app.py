@@ -47,6 +47,27 @@ class SubstackFetcher:
             date_elem = soup.find('time')
             date_text = date_elem.get('datetime') if date_elem else ""
             
+            # Try to get a more readable date format
+            readable_date = ""
+            if date_elem:
+                readable_date = date_elem.get_text().strip()
+            
+            # Extract description/summary
+            description = ""
+            desc_elem = soup.find('meta', {'name': 'description'})
+            if not desc_elem:
+                desc_elem = soup.find('meta', {'property': 'og:description'})
+            if desc_elem:
+                description = desc_elem.get('content', '')[:200] + ("..." if len(desc_elem.get('content', '')) > 200 else "")
+            
+            # If no meta description, try to extract from first paragraph
+            if not description and content_div:
+                first_p = content_div.find('p')
+                if first_p:
+                    text = first_p.get_text().strip()
+                    if text:
+                        description = text[:200] + ("..." if len(text) > 200 else "")
+            
             # Extract content
             content_div = soup.find('div', class_='available-content')
             if not content_div:
@@ -64,6 +85,8 @@ class SubstackFetcher:
                 'title': title_text,
                 'author': author_text,
                 'date': date_text,
+                'readable_date': readable_date,
+                'description': description,
                 'content': content,
                 'url': url
             }
@@ -150,6 +173,7 @@ class EPUBCompiler:
         self.book.add_author(author)
         
         self.chapters = []
+        self.articles = []  # Store articles for TOC generation
         self.toc = []
         self.spine = ['nav']
         self.added_images = set()  # Track added images to avoid duplicates
@@ -190,6 +214,7 @@ class EPUBCompiler:
         # Add to book
         self.book.add_item(chapter)
         self.chapters.append(chapter)
+        self.articles.append(article)  # Store for TOC generation
         self.toc.append(epub.Link(f"{chapter_id}.xhtml", article['title'], chapter_id))
         self.spine.append(chapter)
         return True
@@ -207,8 +232,99 @@ class EPUBCompiler:
                 self.book.add_item(img_item)
                 self.added_images.add(img_data['filename'])
     
+    def create_toc_chapter(self):
+        """Create a dedicated Table of Contents chapter."""
+        if not self.articles:
+            return
+        
+        toc_content = """
+        <html>
+        <head>
+            <title>Table of Contents</title>
+            <style>
+                .toc-entry { margin-bottom: 1.5em; padding-bottom: 1em; border-bottom: 1px solid #eee; }
+                .toc-title { font-size: 1.2em; font-weight: bold; margin-bottom: 0.3em; }
+                .toc-title a { text-decoration: none; color: #333; }
+                .toc-title a:hover { color: #0066cc; }
+                .toc-meta { font-size: 0.9em; color: #666; margin-bottom: 0.5em; }
+                .toc-description { font-size: 0.95em; line-height: 1.4; color: #444; }
+                .toc-header { text-align: center; margin-bottom: 2em; }
+                .toc-stats { background: #f8f9fa; padding: 1em; border-radius: 5px; margin-bottom: 2em; }
+            </style>
+        </head>
+        <body>
+            <div class="toc-header">
+                <h1>Table of Contents</h1>
+                <div class="toc-stats">
+                    <p><strong>Total Articles:</strong> {article_count}</p>
+                    <p><strong>Generated:</strong> {generation_date}</p>
+                </div>
+            </div>
+            
+            {toc_entries}
+        </body>
+        </html>
+        """.format(
+            article_count=len(self.articles),
+            generation_date=datetime.now().strftime('%B %d, %Y at %I:%M %p'),
+            toc_entries=self._generate_toc_entries()
+        )
+        
+        toc_chapter = epub.EpubHtml(
+            title="Table of Contents",
+            file_name="toc.xhtml",
+            lang='en'
+        )
+        toc_chapter.content = toc_content
+        
+        # Add TOC chapter to the beginning
+        self.book.add_item(toc_chapter)
+        self.chapters.insert(0, toc_chapter)
+        self.toc.insert(0, epub.Link("toc.xhtml", "Table of Contents", "toc"))
+        
+        # Update spine to include TOC after nav
+        self.spine.insert(1, toc_chapter)
+    
+    def _generate_toc_entries(self):
+        """Generate HTML entries for the table of contents."""
+        entries = []
+        
+        for i, article in enumerate(self.articles, 1):
+            chapter_file = f"chapter_{i}.xhtml"
+            
+            # Format date
+            date_display = ""
+            if article.get('readable_date'):
+                date_display = article['readable_date']
+            elif article.get('date'):
+                try:
+                    from datetime import datetime as dt
+                    parsed_date = dt.fromisoformat(article['date'].replace('Z', '+00:00'))
+                    date_display = parsed_date.strftime('%B %d, %Y')
+                except:
+                    date_display = article['date']
+            
+            # Create entry HTML
+            entry = f'''
+            <div class="toc-entry">
+                <div class="toc-title">
+                    <a href="{chapter_file}">{article['title']}</a>
+                </div>
+                <div class="toc-meta">
+                    By {article['author']}{f" • {date_display}" if date_display else ""}
+                </div>
+                {f'<div class="toc-description">{article["description"]}</div>' if article.get('description') else ''}
+            </div>
+            '''
+            entries.append(entry)
+        
+        return '\n'.join(entries)
+    
     def compile_epub(self, output_path):
         """Compile and save the EPUB file."""
+        # Create Table of Contents chapter
+        self.create_toc_chapter()
+        
         # Add navigation
         self.book.toc = self.toc
         self.book.add_item(epub.EpubNcx())
@@ -289,6 +405,9 @@ def compile_epub():
     
     # Generate EPUB
     try:
+        # Add any downloaded images
+        compiler.add_images(fetcher.images)
+        
         # Create temporary file
         temp_dir = tempfile.gettempdir()
         filename = f"substack_collection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.epub"
