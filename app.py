@@ -236,54 +236,57 @@ class EPUBCompiler:
         """Create a dedicated Table of Contents chapter."""
         if not self.articles:
             return
-        
-        toc_content = """
-        <html>
-        <head>
-            <title>Table of Contents</title>
-            <style>
-                .toc-entry { margin-bottom: 1.5em; padding-bottom: 1em; border-bottom: 1px solid #eee; }
-                .toc-title { font-size: 1.2em; font-weight: bold; margin-bottom: 0.3em; }
-                .toc-title a { text-decoration: none; color: #333; }
-                .toc-title a:hover { color: #0066cc; }
-                .toc-meta { font-size: 0.9em; color: #666; margin-bottom: 0.5em; }
-                .toc-description { font-size: 0.95em; line-height: 1.4; color: #444; }
-                .toc-header { text-align: center; margin-bottom: 2em; }
-                .toc-stats { background: #f8f9fa; padding: 1em; border-radius: 5px; margin-bottom: 2em; }
-            </style>
-        </head>
-        <body>
-            <div class="toc-header">
-                <h1>Table of Contents</h1>
-                <div class="toc-stats">
-                    <p><strong>Total Articles:</strong> {article_count}</p>
-                    <p><strong>Generated:</strong> {generation_date}</p>
-                </div>
-            </div>
             
-            {toc_entries}
-        </body>
-        </html>
-        """.format(
-            article_count=len(self.articles),
-            generation_date=datetime.now().strftime('%B %d, %Y at %I:%M %p'),
-            toc_entries=self._generate_toc_entries()
-        )
+        try:
+            toc_entries = self._generate_toc_entries()
+            article_count = len(self.articles)
+            generation_date = datetime.now().strftime('%B %d, %Y at %I:%M %p')
+            
+            toc_content = f"""<html>
+<head>
+    <title>Table of Contents</title>
+    <style>
+        .toc-entry {{ margin-bottom: 1.5em; padding-bottom: 1em; border-bottom: 1px solid #eee; }}
+        .toc-title {{ font-size: 1.2em; font-weight: bold; margin-bottom: 0.3em; }}
+        .toc-title a {{ text-decoration: none; color: #333; }}
+        .toc-title a:hover {{ color: #0066cc; }}
+        .toc-meta {{ font-size: 0.9em; color: #666; margin-bottom: 0.5em; }}
+        .toc-description {{ font-size: 0.95em; line-height: 1.4; color: #444; }}
+        .toc-header {{ text-align: center; margin-bottom: 2em; }}
+        .toc-stats {{ background: #f8f9fa; padding: 1em; border-radius: 5px; margin-bottom: 2em; }}
+    </style>
+</head>
+<body>
+    <div class="toc-header">
+        <h1>Table of Contents</h1>
+        <div class="toc-stats">
+            <p><strong>Total Articles:</strong> {article_count}</p>
+            <p><strong>Generated:</strong> {generation_date}</p>
+        </div>
+    </div>
+    
+    {toc_entries}
+</body>
+</html>"""
         
-        toc_chapter = epub.EpubHtml(
-            title="Table of Contents",
-            file_name="toc.xhtml",
-            lang='en'
-        )
-        toc_chapter.content = toc_content
-        
-        # Add TOC chapter to the beginning
-        self.book.add_item(toc_chapter)
-        self.chapters.insert(0, toc_chapter)
-        self.toc.insert(0, epub.Link("toc.xhtml", "Table of Contents", "toc"))
-        
-        # Update spine to include TOC after nav
-        self.spine.insert(1, toc_chapter)
+            toc_chapter = epub.EpubHtml(
+                title="Table of Contents",
+                file_name="toc.xhtml",
+                lang='en'
+            )
+            toc_chapter.content = toc_content
+            
+            # Add TOC chapter to the beginning
+            self.book.add_item(toc_chapter)
+            self.chapters.insert(0, toc_chapter)
+            self.toc.insert(0, epub.Link("toc.xhtml", "Table of Contents", "toc"))
+            
+            # Update spine to include TOC after nav
+            self.spine.insert(1, toc_chapter)
+            
+        except Exception as e:
+            print(f"Error creating TOC chapter: {e}")
+            # If TOC creation fails, continue without it
     
     def _generate_toc_entries(self):
         """Generate HTML entries for the table of contents."""
@@ -304,18 +307,29 @@ class EPUBCompiler:
                 except:
                     date_display = article['date']
             
+            # Escape HTML in content
+            title = article['title'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            author = article['author'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            description = article.get('description', '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            
             # Create entry HTML
-            entry = f'''
-            <div class="toc-entry">
-                <div class="toc-title">
-                    <a href="{chapter_file}">{article['title']}</a>
-                </div>
-                <div class="toc-meta">
-                    By {article['author']}{f" • {date_display}" if date_display else ""}
-                </div>
-                {f'<div class="toc-description">{article["description"]}</div>' if article.get('description') else ''}
-            </div>
-            '''
+            entry_parts = [
+                '<div class="toc-entry">',
+                f'  <div class="toc-title">',
+                f'    <a href="{chapter_file}">{title}</a>',
+                f'  </div>',
+                f'  <div class="toc-meta">',
+                f'    By {author}{f" • {date_display}" if date_display else ""}',
+                f'  </div>'
+            ]
+            
+            if description:
+                entry_parts.extend([
+                    f'  <div class="toc-description">{description}</div>'
+                ])
+                
+            entry_parts.append('</div>')
+            entry = '\n'.join(entry_parts)
             entries.append(entry)
         
         return '\n'.join(entries)
