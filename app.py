@@ -124,32 +124,52 @@ class SubstackFetcher:
                         'Referer': base_url
                     }
                     img_response = self.session.get(src, timeout=10, headers=headers)
-                    if img_response.status_code == 200 and len(img_response.content) > 0:
+                    if (img_response.status_code == 200 and 
+                        len(img_response.content) > 100 and  # Minimum 100 bytes
+                        len(img_response.content) < 5 * 1024 * 1024):  # Maximum 5MB
                         # Generate unique filename
-                        img_id = f"img_{len(self.images)}"
+                        img_id = f"img_{len(self.images):03d}"
                         
                         # Determine file extension from content type or URL
-                        content_type = img_response.headers.get('content-type', '')
+                        content_type = img_response.headers.get('content-type', '').lower()
                         if 'jpeg' in content_type or 'jpg' in content_type:
                             ext = '.jpg'
+                            mime_type = 'image/jpeg'
                         elif 'png' in content_type:
-                            ext = '.png'
+                            ext = '.png' 
+                            mime_type = 'image/png'
                         elif 'gif' in content_type:
                             ext = '.gif'
+                            mime_type = 'image/gif'
                         elif 'webp' in content_type:
-                            ext = '.webp'
+                            # Convert WebP to JPG for better EPUB compatibility
+                            ext = '.jpg'
+                            mime_type = 'image/jpeg'
                         else:
                             # Try to get extension from URL
-                            ext = os.path.splitext(urlparse(src).path)[1] or '.jpg'
+                            url_ext = os.path.splitext(urlparse(src).path)[1].lower()
+                            if url_ext in ['.jpg', '.jpeg']:
+                                ext = '.jpg'
+                                mime_type = 'image/jpeg'
+                            elif url_ext == '.png':
+                                ext = '.png'
+                                mime_type = 'image/png'
+                            elif url_ext == '.gif':
+                                ext = '.gif'
+                                mime_type = 'image/gif'
+                            else:
+                                ext = '.jpg'
+                                mime_type = 'image/jpeg'
                         
-                        filename = f"images/{img_id}{ext}"
+                        # Use simpler path without subdirectory for better compatibility
+                        filename = f"{img_id}{ext}"
                         
                         # Store image data
                         self.images.append({
                             'id': img_id,
                             'filename': filename,
                             'data': img_response.content,
-                            'content_type': content_type or mimetypes.guess_type(filename)[0] or 'image/jpeg'
+                            'content_type': mime_type
                         })
                         
                         # Update img tag to reference local file
@@ -202,23 +222,24 @@ class EPUBCompiler:
             lang='en'
         )
         
-        # Format chapter content
-        chapter_content = f"""
-        <html>
-        <head>
-            <title>{article['title']}</title>
-        </head>
-        <body>
-            <h1>{article['title']}</h1>
-            <p><em>By {article['author']}</em></p>
-            {f"<p><small>{article['date']}</small></p>" if article['date'] else ""}
-            <hr/>
-            {article['content']}
-            <hr/>
-            <p><small>Source: <a href="{article['url']}">{article['url']}</a></small></p>
-        </body>
-        </html>
-        """
+        # Format chapter content with proper EPUB structure
+        chapter_content = f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <title>{article['title']}</title>
+    <link rel="stylesheet" type="text/css" href="style/nav.css"/>
+</head>
+<body>
+    <h1>{article['title']}</h1>
+    <p><em>By {article['author']}</em></p>
+    {f"<p><small>{article['readable_date'] or article['date']}</small></p>" if article.get('readable_date') or article.get('date') else ""}
+    <hr/>
+    {article['content']}
+    <hr/>
+    <p><small>Source: <a href="{article['url']}">{article['url']}</a></small></p>
+</body>
+</html>"""
         
         chapter.content = chapter_content
         
@@ -258,7 +279,9 @@ class EPUBCompiler:
             article_count = len(self.articles)
             generation_date = datetime.now().strftime('%B %d, %Y at %I:%M %p')
             
-            toc_content = f"""<html>
+            toc_content = f"""<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
     <title>Table of Contents</title>
     <style>
@@ -360,7 +383,7 @@ class EPUBCompiler:
         self.book.add_item(epub.EpubNcx())
         self.book.add_item(epub.EpubNav())
         
-        # Add CSS
+        # Add CSS with image support
         style = '''
         body { font-family: Georgia, serif; margin: 2em; line-height: 1.6; }
         h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 0.5em; }
@@ -368,6 +391,9 @@ class EPUBCompiler:
         p { margin-bottom: 1em; }
         blockquote { font-style: italic; margin: 1em 2em; padding: 1em; background-color: #f5f5f5; }
         hr { margin: 2em 0; border: none; border-top: 1px solid #ccc; }
+        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        figure { margin: 1em 0; text-align: center; }
+        figcaption { font-style: italic; font-size: 0.9em; color: #666; margin-top: 0.5em; }
         '''
         nav_css = epub.EpubItem(
             uid="style_nav",
