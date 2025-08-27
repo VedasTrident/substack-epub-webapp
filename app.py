@@ -118,8 +118,13 @@ class SubstackFetcher:
                 
                 # Download and process image
                 try:
-                    img_response = self.session.get(src, timeout=10)
-                    if img_response.status_code == 200:
+                    # Add headers for better success rate
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                        'Referer': base_url
+                    }
+                    img_response = self.session.get(src, timeout=10, headers=headers)
+                    if img_response.status_code == 200 and len(img_response.content) > 0:
                         # Generate unique filename
                         img_id = f"img_{len(self.images)}"
                         
@@ -149,10 +154,16 @@ class SubstackFetcher:
                         
                         # Update img tag to reference local file
                         img['src'] = filename
+                        # Add alt text if missing
+                        if not img.get('alt'):
+                            img['alt'] = 'Image'
+                        
+                        print(f"Downloaded image: {src} -> {filename} ({len(img_response.content)} bytes)")
                         
                 except Exception as e:
-                    # If image download fails, remove the img tag or keep original src
+                    # If image download fails, keep original src and log error
                     print(f"Failed to download image {src}: {e}")
+                    # Keep original src as fallback (though it won't work offline)
                     pass
         
         # Convert to string and clean up
@@ -221,16 +232,21 @@ class EPUBCompiler:
     
     def add_images(self, images):
         """Add images from fetcher to the EPUB."""
+        print(f"Adding {len(images)} images to EPUB...")
         for img_data in images:
             if img_data['filename'] not in self.added_images:
-                img_item = epub.EpubItem(
-                    uid=img_data['id'],
-                    file_name=img_data['filename'],
-                    media_type=img_data['content_type'],
-                    content=img_data['data']
-                )
-                self.book.add_item(img_item)
-                self.added_images.add(img_data['filename'])
+                try:
+                    img_item = epub.EpubItem(
+                        uid=img_data['id'],
+                        file_name=img_data['filename'],
+                        media_type=img_data['content_type'],
+                        content=img_data['data']
+                    )
+                    self.book.add_item(img_item)
+                    self.added_images.add(img_data['filename'])
+                    print(f"Added image to EPUB: {img_data['filename']} ({img_data['content_type']})")
+                except Exception as e:
+                    print(f"Failed to add image {img_data['filename']}: {e}")
     
     def create_toc_chapter(self):
         """Create a dedicated Table of Contents chapter."""
@@ -403,12 +419,15 @@ def compile_epub():
             if article and 'error' not in article:
                 if compiler.add_article(article):
                     successful_articles.append(article['title'])
+                    print(f"Added article: {article['title']}")
                 else:
                     failed_articles.append(url)
             else:
                 failed_articles.append(url)
+                print(f"Failed to fetch: {url}")
         except Exception as e:
             failed_articles.append(url)
+            print(f"Error fetching {url}: {e}")
         
         # Be nice to servers
         time.sleep(1)
@@ -419,8 +438,12 @@ def compile_epub():
     
     # Generate EPUB
     try:
-        # Add any downloaded images
-        compiler.add_images(fetcher.images)
+        # Add any downloaded images first
+        if fetcher.images:
+            compiler.add_images(fetcher.images)
+            print(f"Processing {len(fetcher.images)} images for EPUB")
+        else:
+            print("No images found to process")
         
         # Create temporary file
         temp_dir = tempfile.gettempdir()
